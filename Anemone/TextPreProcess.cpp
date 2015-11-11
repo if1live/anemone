@@ -27,6 +27,32 @@ static std::wstring PreProcessFunc_NameExistAndTextNotStartWithName(const std::w
 	return text;
 }
 
+static std::wstring PreProcessFunc_RawNameOccurAfterText(const std::wstring &text) 
+{
+	// 「...」 뒤에 특수문자 없이 이름이 등장하면 순서 뒤집기
+	// before: 「…えっと…」天音
+	// after: 【天音】「…えっと…」
+	std::wregex regex(L"^(「.+」)(.+)$");
+	std::wsmatch m;
+	if (std::regex_match(text, m, regex)) {
+		if (m.size() >= 3) {
+			int textPos = m.position(1);
+			int textLen = m.length(1);
+			int namePos = m.position(2);
+			int nameLen = m.length(2);
+			std::wstring charaText = text.substr(textPos, textLen);
+			std::wstring charaName = text.substr(namePos, nameLen);
+			std::wostringstream oss;
+			oss << L"【";
+			oss << charaName;
+			oss << L"】";
+			oss << charaText;
+			return oss.str();
+		}
+	}
+	return text;
+}
+
 CTextPreProcess::CTextPreProcess()
 {
 
@@ -47,8 +73,9 @@ std::wstring CTextPreProcess::PreProcessText(const std::wstring &input)
 	}
 
 	typedef std::function<std::wstring(std::wstring)> PreProcessFuncType;
-	std::array<PreProcessFuncType, 1> funcs = {
+	std::array<PreProcessFuncType, 2> funcs = {
 		PreProcessFunc_NameExistAndTextNotStartWithName,
+		PreProcessFunc_RawNameOccurAfterText,
 	};
 
 	std::wstring text = input;
@@ -78,10 +105,16 @@ static int testMainForTextPreProcess()
 		assert(actual == expected);
 	}
 	{
+		auto input = L"「…えっと…」天音";
+		auto expected = L"【天音】「…えっと…」";
+		auto actual = subject.PreProcessText(input);
+		assert(actual == expected);
+	}
+	{
 		// 전처리가가 작업을 수행하지 않는 경우
 		std::array<std::wstring, 3> inputTexts = {
 			L"【刑事】「も?…なんなんだよオマエは…」",	// 일반 규격 문자열
-			L"123",	// 너무 짧다
+			L"12",	// 너무 짧다
 			L"",	// 비어있다 
 		};
 		for (auto &input : inputTexts)
