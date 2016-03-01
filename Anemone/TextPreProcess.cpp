@@ -1,9 +1,11 @@
+// ?nicode please
 #include "stdafx.h"
 #include "TextPreProcess.h"
 #include <cassert>
 #include <regex>
 #include <array>
 #include <functional>
+#include <set>
 
 static std::wstring PreProcessFunc_NameExistAndTextNotStartWithName(const std::wstring &text)
 {
@@ -53,6 +55,23 @@ static std::wstring PreProcessFunc_RawNameOccurAfterText(const std::wstring &tex
 	return text;
 }
 
+static std::wstring PreProcessFunc_SanitizeSpecialCharacter(const std::wstring &text)
+{
+	// ITH의 Link를 이용하면 2개의 후킹 결과물을 합칠수 있다
+	// 예를 들어 쓰레드A에서 이름을 얻은 결과물이 "【?】▼", 쓰레드B에서 대사를 얻은 결과물이 「……」"
+	// 둘을 합치면 【?】▼「……」가 된다. 이 경우 의도하지 않게 ▼가 들어갔다
+	// 대사에 ▼가 직접 들어가진 않을거라고 가정하고 간단하게 구현
+	std::set<std::wstring::value_type> invalidCharacters{ L'▼' };
+	std::wostringstream oss;
+	for (auto ch : text) {
+		auto found = invalidCharacters.find(ch);
+		if (found == invalidCharacters.end()) {
+			oss << ch;
+		}
+	}
+	return oss.str();
+}
+
 CTextPreProcess::CTextPreProcess()
 {
 
@@ -73,9 +92,10 @@ std::wstring CTextPreProcess::PreProcessText(const std::wstring &input)
 	}
 
 	typedef std::function<std::wstring(std::wstring)> PreProcessFuncType;
-	std::array<PreProcessFuncType, 2> funcs = {
+	std::array<PreProcessFuncType, 3> funcs = {
 		PreProcessFunc_NameExistAndTextNotStartWithName,
 		PreProcessFunc_RawNameOccurAfterText,
+		PreProcessFunc_SanitizeSpecialCharacter
 	};
 
 	std::wstring text = input;
@@ -92,36 +112,25 @@ static int testMainForTextPreProcess()
 	// 전처리기를 간단하게 테스트
 	// 아네모네 기존 코드에는 테스트와 관련된 코드가 없어서 적절히 끼워넣음
 	CTextPreProcess subject;
-	{
-		auto input = L"「も【刑事】?…なんなんだよオマエは…」";
-		auto expected = L"【刑事】「も?…なんなんだよオマエは…」";
-		auto actual = subject.PreProcessText(input);
-		assert(actual == expected);
-	}
-	{
-		auto input = L"「も?…なんなんだよオマエは…」【刑事】";
-		auto expected = L"【刑事】「も?…なんなんだよオマエは…」";
-		auto actual = subject.PreProcessText(input);
-		assert(actual == expected);
-	}
-	{
-		auto input = L"「…えっと…」天音";
-		auto expected = L"【天音】「…えっと…」";
-		auto actual = subject.PreProcessText(input);
-		assert(actual == expected);
-	}
-	{
-		// 전처리가가 작업을 수행하지 않는 경우
-		std::array<std::wstring, 3> inputTexts = {
-			L"【刑事】「も?…なんなんだよオマエは…」",	// 일반 규격 문자열
-			L"12",	// 너무 짧다
-			L"",	// 비어있다 
-		};
-		for (auto &input : inputTexts)
-		{
-			auto actual = subject.PreProcessText(input);
-			assert(actual == input);
-		}
+
+	struct TestCase {
+		std::wstring input;
+		std::wstring expected;
+	};
+	std::vector<TestCase> cases = {
+		{ L"「も【刑事】?…なんなんだよオマエは…」", L"【刑事】「も?…なんなんだよオマエは…」" },
+		{ L"「も?…なんなんだよオマエは…」【刑事】", L"【刑事】「も?…なんなんだよオマエは…」" },
+		{ L"「…えっと…」天音", L"【天音】「…えっと…」" },
+		{ L"【?】▼「……」", L"【?】「……」" },
+		{ L"▼羊飼い……か。", L"羊飼い……か。" },
+		// not changed
+		{ L"【刑事】「も?…なんなんだよオマエは…」", L"【刑事】「も?…なんなんだよオマエは…」" },
+		{ L"12", L"12" },
+		{ L"", L"" },
+	};
+	for (auto &c : cases) {
+		auto actual = subject.PreProcessText(c.input);
+		assert(actual == c.expected);
 	}
 	return 0;
 }
